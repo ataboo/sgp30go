@@ -22,6 +22,7 @@ const (
 	GetFeatureSetVersion uint16 = 0x202f
 	MeasureRawSignals    uint16 = 0x2050
 	GetSerialID          uint16 = 0x3682
+	ExpectedFeatureSet   uint16 = 0x0020
 
 	Crc8Polynomial byte = 0x31
 	Crc8Init       byte = 0xFF
@@ -30,7 +31,7 @@ const (
 
 	DefaultI2CFsPath   string  = "/dev/i2c-1"
 	DefaultI2CAddr     byte    = 0x53
-	DefaultFrequency   float32 = 1000.0
+	DefaultFrequency   float32 = 100000.0
 	DefaultDelayMillis int     = 5
 )
 
@@ -78,6 +79,7 @@ type SGP30Sensor struct {
 	cfg           *Config
 	i2cConnection i2CConnection
 	crcTable      *crc8.Table
+	SerialID      uint64
 }
 
 func (s *SGP30Sensor) Init() error {
@@ -85,10 +87,30 @@ func (s *SGP30Sensor) Init() error {
 		s.logError(err.Error())
 		return err
 	}
-	s.delay(10)
+	s.delay(s.cfg.DelayMillis)
 
-	_, err := s.readWordsUint(InitAirQuality, 0)
-	return err
+	if _, err := s.readWordsUint(InitAirQuality, 0); err != nil {
+		return err
+	}
+
+	if serial, err := s.getSerial(); err == nil {
+		s.SerialID = serial
+	} else {
+		s.SerialID = 0
+		s.logError("failed to get serial: %s", err)
+	}
+
+	if featureSet, err := s.getFeatureSet(); err == nil {
+		if featureSet != ExpectedFeatureSet {
+			s.logError("sgp30 featureset mismatch: %x", featureSet)
+			return fmt.Errorf("sgp30 sensor not found")
+		}
+	} else {
+		s.logError("failed to get feature set")
+		return fmt.Errorf("sgp30 sensor not found")
+	}
+
+	return nil
 }
 
 func (s *SGP30Sensor) Close() error {
@@ -132,9 +154,28 @@ func (s *SGP30Sensor) SetBaseline(eCO2 uint16, TVOC uint16) error {
 	return err
 }
 
+func (s *SGP30Sensor) getSerial() (uint64, error) {
+	vals, err := s.readWordsUint(GetSerialID, 3)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read serial: %s", err)
+	}
+
+	return s.combineWords(vals), nil
+}
+
+func (s *SGP30Sensor) getFeatureSet() (uint16, error) {
+	vals, err := s.readWordsUint(GetFeatureSetVersion, 1)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get feature set: %s", err)
+	}
+
+	return vals[0], nil
+}
+
 func (s *SGP30Sensor) startI2CConnection() error {
 	if s.i2cConnection != nil {
-		return fmt.Errorf("i2cconnection already started")
+		s.logError("i2cconnection already started")
+		return nil
 	}
 
 	if _, err := os.Stat(s.cfg.I2CFsPath); err != nil {
@@ -160,6 +201,19 @@ func (s *SGP30Sensor) readWordsUint(command uint16, replySize int) (result []uin
 	binary.BigEndian.PutUint16(buffer, command)
 
 	return s.readWords(buffer, replySize)
+}
+
+func (s *SGP30Sensor) combineWords(words []uint16) uint64 {
+	combined := make([]byte, 8)
+
+	for i := range words {
+		buf := make([]byte, 2)
+		binary.BigEndian.PutUint16(buf, words[len(words)-1-i])
+		combined[7-2*i] = buf[1]
+		combined[7-(2*i+1)] = buf[0]
+	}
+
+	return binary.BigEndian.Uint64(combined)
 }
 
 func (s *SGP30Sensor) readWords(command []byte, replySize int) (result []uint16, err error) {
@@ -193,7 +247,8 @@ func (s *SGP30Sensor) readWords(command []byte, replySize int) (result []uint16,
 
 		generatedCrc := s.generateCrc(word)
 		if generatedCrc != crc {
-			s.logError("crc mismatch %s, %s", crc, generatedCrc)
+			s.logError("crc mismatch %+v, %+v", crc, generatedCrc)
+			return nil, fmt.Errorf("crc mismatch %x, %x", crc, generatedCrc)
 		}
 
 		result[i] = binary.BigEndian.Uint16([]byte{word[0], word[1]})
@@ -213,17 +268,5 @@ func (s *SGP30Sensor) delay(delayMillis int) {
 func (s *SGP30Sensor) logError(msg string, params ...interface{}) {
 	if s.cfg.Logger != nil {
 		s.cfg.Logger.Errorf(msg, params)
-	}
-}
-
-func (s *SGP30Sensor) logInfo(msg string) {
-	if s.cfg.Logger != nil {
-		s.cfg.Logger.Info(msg)
-	}
-}
-
-func (s *SGP30Sensor) logDebug(msg string, params ...interface{}) {
-	if s.cfg.Logger != nil {
-		s.cfg.Logger.Debugf(msg, params)
 	}
 }
