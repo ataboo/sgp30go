@@ -1,6 +1,6 @@
-module github.com/ataboo/sgp30go
+module github.com/ataboo/spg30go
 
-go 1.13
+go 1.12
 
 require (
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
