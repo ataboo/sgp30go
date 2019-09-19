@@ -1,4 +1,4 @@
-module github.com/ataboo/spg30go
+module github.com/ataboo/sgp30go
 
 go 1.12
 

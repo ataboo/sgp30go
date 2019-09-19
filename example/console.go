@@ -18,6 +18,12 @@ func main() {
 	}
 	defer sensor.Close()
 
+	logger.Info("Connected to sensor with serial: %d", sensor.SerialID)
+
+	if err := sensor.SetBaseline(0x8973, 0x8aae); err != nil {
+		logger.Error("failed to set baseline", err)
+	}
+
 	for {
 		select {
 		case <-time.Tick(time.Second):
@@ -25,14 +31,18 @@ func main() {
 			if err != nil {
 				logger.Error("failed to measure", err)
 			} else {
-				logger.Info("Measurement: eCO2 - %x, TVOC - %x", eCO2, TVOC)
+				logger.Infof("Measurement: eCO2 - %x, TVOC - %x", eCO2, TVOC)
 			}
-		case <-time.Tick(time.Minute):
+		case <-time.Tick(time.Second * 10):
 			eCo2Base, TVOCBase, err := sensor.GetBaseline()
 			if err != nil {
 				logger.Error("failed to get base", err)
 			} else {
-				logger.Info("Baseline: eCO2 - %x, TVOC - %x", eCo2Base, TVOCBase)
+				logger.Infof("Baseline: eCO2 - %x, TVOC - %x", eCo2Base, TVOCBase)
+			}
+
+			if err := sensor.SetBaseline(eCo2Base, TVOCBase); err != nil {
+				logger.Error("failed to set base", err)
 			}
 		}
 	}

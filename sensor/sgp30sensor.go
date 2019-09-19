@@ -30,9 +30,9 @@ const (
 	Crc8Check      byte = 0xF7
 
 	DefaultI2CFsPath   string  = "/dev/i2c-1"
-	DefaultI2CAddr     byte    = 0x53
+	DefaultI2CAddr     byte    = 0x58
 	DefaultFrequency   float32 = 100000.0
-	DefaultDelayMillis int     = 5
+	DefaultDelayMillis int     = 10
 )
 
 type i2CConnection interface {
@@ -89,10 +89,6 @@ func (s *SGP30Sensor) Init() error {
 	}
 	s.delay(s.cfg.DelayMillis)
 
-	if _, err := s.readWordsUint(InitAirQuality, 0); err != nil {
-		return err
-	}
-
 	if serial, err := s.getSerial(); err == nil {
 		s.SerialID = serial
 	} else {
@@ -108,6 +104,10 @@ func (s *SGP30Sensor) Init() error {
 	} else {
 		s.logError("failed to get feature set")
 		return fmt.Errorf("sgp30 sensor not found")
+	}
+
+	if _, err := s.readWordsUint(InitAirQuality, 0); err != nil {
+		return err
 	}
 
 	return nil
@@ -223,7 +223,7 @@ func (s *SGP30Sensor) readWords(command []byte, replySize int) (result []uint16,
 
 	err = s.i2cConnection.Write(command)
 	if err != nil {
-		s.logError("failed writing command %s: %s", hex.Dump(command), err)
+		s.logError("failed writing command %s: %s", hex.Dump(command), err.Error())
 		return result, err
 	}
 
